@@ -36,7 +36,7 @@ export default function RunANode() {
               no invoices, no trust required.
             </p>
             <a
-              href="https://github.com/mro/fusill"
+              href="https://github.com/ru-mro/fusill"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-5 py-2.5 border border-[#f97316] text-[#f97316] text-sm font-bold rounded hover:bg-[#f97316]/10 transition-colors"

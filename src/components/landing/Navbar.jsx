@@ -21,7 +21,7 @@ export default function Navbar() {
             Attack types
           </a>
           <a
-            href="https://github.com/mro/fusill"
+            href="https://github.com/ru-mro/fusill"
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-[#888] hover:text-[#f5f5f5] transition-colors"
@@ -80,7 +80,7 @@ export default function Navbar() {
               Attack types
             </a>
             <a
-              href="https://github.com/mro/fusill"
+              href="https://github.com/ru-mro/fusill"
               target="_blank"
               rel="noopener noreferrer"
               onClick={close}
