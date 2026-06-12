@@ -22,6 +22,24 @@ const ATTACKS = [
 
 const INTENSITIES = ['Liviano', 'Medio', 'Agresivo']
 
+// Acceptable-use gate. Offensive testing without authorization is illegal, so job
+// and campaign creation is blocked until the user explicitly acknowledges this.
+function AuthorizationAck({ checked, onChange }) {
+  return (
+    <label className="flex items-start gap-2 text-xs text-[#888] cursor-pointer select-none">
+      <input
+        type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)}
+        className="mt-0.5 accent-[#f97316]"
+      />
+      <span>
+        I confirm I <span className="text-[#f5f5f5]">own this target</span> or have explicit
+        written authorization to test it. Running these tests against systems without
+        authorization is illegal, and I accept sole responsibility for this use.
+      </span>
+    </label>
+  )
+}
+
 const STATUS_COLOR = {
   open:                'text-[#60a5fa]',
   filled:              'text-[#a78bfa]',
@@ -41,12 +59,14 @@ function CreateJobForm({ client, onCreated }) {
   const [payment, setPayment]     = useState(0.03)
   const [busy, setBusy]           = useState(false)
   const [error, setError]         = useState(null)
+  const [ack, setAck]             = useState(false)
 
   const attackDef = ATTACKS.find(a => a.type === attack)
   const config    = attackDef.presets[intensity]
 
   async function submit(e) {
     e.preventDefault()
+    if (!ack) return
     setBusy(true); setError(null)
     try {
       await client.createJob({
@@ -122,10 +142,12 @@ function CreateJobForm({ client, onCreated }) {
       </div>
 
       <p className="text-xs text-[#666] font-mono">config: {JSON.stringify(config)}</p>
+
+      <AuthorizationAck checked={ack} onChange={setAck} />
       {error && <p className="text-xs text-[#f87171]">{error}</p>}
 
       <button
-        type="submit" disabled={busy}
+        type="submit" disabled={busy || !ack}
         className="w-full bg-[#f97316] text-[#0a0a0a] font-bold text-sm py-2.5 rounded hover:bg-[#fb923c] transition-colors disabled:opacity-50"
       >
         {busy ? 'Sending transaction…' : 'Create job'}
@@ -214,6 +236,7 @@ function MultiVectorForm({ client, onLaunched }) {
   const [campaign, setCampaign] = useState(null) // PublicKey[] once created
   const [busy, setBusy]         = useState(false)
   const [error, setError]       = useState(null)
+  const [ack, setAck]           = useState(false)
 
   const updateVector = (i, patch) => setVectors(vs => vs.map((v, idx) => idx === i ? { ...v, ...patch } : v))
   const addVector    = () => setVectors(vs => [...vs, { type: 'tlsExhaustion', intensity: 'Medio', minNodes: 3 }])
@@ -223,6 +246,7 @@ function MultiVectorForm({ client, onLaunched }) {
 
   async function create(e) {
     e.preventDefault()
+    if (!ack) return
     setBusy(true); setError(null)
     try {
       const resolved = vectors.map(v => ({
@@ -314,9 +338,11 @@ function MultiVectorForm({ client, onLaunched }) {
       </div>
 
       <p className="text-xs text-[#666]">{vectors.length} vectors · {totalNodes} nodes total · {(vectors.length * payment).toFixed(2)} SOL · one signature per vector</p>
+
+      <AuthorizationAck checked={ack} onChange={setAck} />
       {error && <p className="text-xs text-[#f87171]">{error}</p>}
 
-      <button type="submit" disabled={busy}
+      <button type="submit" disabled={busy || !ack}
         className="w-full bg-[#f97316] text-[#0a0a0a] font-bold text-sm py-2.5 rounded hover:bg-[#fb923c] transition-colors disabled:opacity-50">
         {busy ? 'Creating campaign…' : 'Create campaign'}
       </button>
@@ -422,6 +448,12 @@ function Dashboard() {
           </div>
         ) : (
           <>
+            <div className="border border-[#3a2a1a] bg-[#1a1206] rounded px-4 py-3 text-xs text-[#caa472]">
+              ⚠️ Authorized testing only. Use Fusill exclusively against infrastructure you own
+              or are explicitly permitted to test. Unauthorized use is illegal; you are solely
+              responsible for your use of this tool.
+            </div>
+
             <div className="flex gap-2">
               {[['single', 'Single attack'], ['multi', 'Multi-vector']].map(([m, label]) => (
                 <button
