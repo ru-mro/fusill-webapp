@@ -5,6 +5,7 @@ import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import Logo from '../components/ui/Logo'
 import WalletProviders from '../web3/WalletProviders'
 import { useFusill } from '../web3/useFusill'
+import { recordJobs, getJobHistory } from '../web3/jobHistory'
 
 // On-chain RunnerType variants with three intensity presets each.
 const ATTACKS = [
@@ -48,9 +49,12 @@ const STATUS_COLOR = {
   pendingFinalization: 'text-[#f97316]',
   completed:           'text-[#4ade80]',
   cancelled:           'text-[#888]',
+  settled:             'text-[#4ade80]',
 }
 
-function CreateJobForm({ client, onCreated }) {
+const SOLSCAN_TX = (tx) => `https://solscan.io/tx/${tx}?cluster=devnet`
+
+function CreateJobForm({ client, owner, onCreated }) {
   const [attack, setAttack]       = useState(ATTACKS[0].type)
   const [intensity, setIntensity] = useState('Medio')
   const [target, setTarget]       = useState('https://')
@@ -69,7 +73,7 @@ function CreateJobForm({ client, onCreated }) {
     if (!ack) return
     setBusy(true); setError(null)
     try {
-      await client.createJob({
+      const { jobPubkey, tx } = await client.createJob({
         target,
         runnerType:      attack,
         runnerConfig:    config,
@@ -77,6 +81,14 @@ function CreateJobForm({ client, onCreated }) {
         minNodes:        Number(minNodes),
         paymentSol:      Number(payment),
       })
+      recordJobs(owner, [{
+        pubkey:     jobPubkey.toString(),
+        target,
+        runnerType: attack,
+        paymentSol: Number(payment),
+        minNodes:   Number(minNodes),
+        tx,
+      }])
       onCreated()
     } catch (err) {
       setError(err.message ?? String(err))
@@ -184,7 +196,7 @@ function JobResults({ client, jobPubkey }) {
   )
 }
 
-function JobList({ client, refreshKey }) {
+function JobList({ client, owner, refreshKey }) {
   const [jobs, setJobs]       = useState([])
   const [loading, setLoading] = useState(true)
   const [openJob, setOpenJob] = useState(null)
@@ -196,8 +208,16 @@ function JobList({ client, refreshKey }) {
 
   useEffect(() => { load() }, [load, refreshKey])
 
+  // Jobs we recorded locally but that no longer exist on-chain: finalized or
+  // cancelled jobs whose account the program has reclaimed. They paid for these,
+  // so we still surface them as "settled".
+  const liveKeys = new Set(jobs.map(j => j.pubkey))
+  const settled  = getJobHistory(owner).filter(h => !liveKeys.has(h.pubkey))
+
   if (loading) return <p className="text-sm text-[#888]">Loading your jobs…</p>
-  if (jobs.length === 0) return <p className="text-sm text-[#888]">No jobs yet. Create one above.</p>
+  if (jobs.length === 0 && settled.length === 0) {
+    return <p className="text-sm text-[#888]">No jobs yet. Create one above.</p>
+  }
 
   return (
     <div className="space-y-3">
@@ -221,11 +241,42 @@ function JobList({ client, refreshKey }) {
           {openJob === j.pubkey && <JobResults client={client} jobPubkey={j.pubkey} />}
         </div>
       ))}
+
+      {settled.length > 0 && (
+        <>
+          <p className="text-xs text-[#666] uppercase tracking-wide pt-2">Finished &amp; settled</p>
+          {settled.map((h) => (
+            <div key={h.pubkey} className="border border-[#2a2a2a] rounded p-4 opacity-80">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-[#f5f5f5] font-mono">{h.target}</p>
+                  <p className="text-xs text-[#888]">
+                    {h.runnerType} · {h.paymentSol} SOL{h.minNodes != null ? ` · ${h.minNodes} nodes` : ''}
+                  </p>
+                </div>
+                <span className={`text-xs font-mono ${STATUS_COLOR.settled}`}>settled</span>
+              </div>
+              <p className="text-xs text-[#666] mt-2">
+                Finished — payout settled on-chain and the job account was closed.
+                {h.tx && (
+                  <>
+                    {' '}
+                    <a
+                      href={SOLSCAN_TX(h.tx)} target="_blank" rel="noopener noreferrer"
+                      className="text-[#f97316] hover:underline"
+                    >View transaction</a>
+                  </>
+                )}
+              </p>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   )
 }
 
-function MultiVectorForm({ client, onLaunched }) {
+function MultiVectorForm({ client, owner, onLaunched }) {
   const [target, setTarget]     = useState('http://mock-target:3000')
   const [duration, setDuration] = useState(30)
   const [payment, setPayment]   = useState(0.03)
@@ -261,6 +312,13 @@ function MultiVectorForm({ client, onLaunched }) {
         durationSeconds: Number(duration),
         paymentSol:      Number(payment),
       })
+      recordJobs(owner, jobPubkeys.map((pk, i) => ({
+        pubkey:     pk.toString(),
+        target,
+        runnerType: resolved[i].type,
+        paymentSol: Number(vectors[i].paymentSol ?? payment),
+        minNodes:   resolved[i].minNodes,
+      })))
       setCampaign(jobPubkeys)
     } catch (err) {
       setError(err.message ?? String(err))
@@ -429,8 +487,9 @@ function CampaignFlow({ client, jobPubkeys, onLaunched, onReset }) {
 }
 
 function Dashboard() {
-  const { connected } = useWallet()
+  const { connected, publicKey } = useWallet()
   const client = useFusill()
+  const owner = publicKey?.toBase58() ?? null
   const [refreshKey, setRefreshKey] = useState(0)
   const [mode, setMode] = useState('single')
 
@@ -466,15 +525,15 @@ function Dashboard() {
             </div>
 
             {mode === 'single'
-              ? <CreateJobForm client={client} onCreated={() => setRefreshKey(k => k + 1)} />
-              : <MultiVectorForm client={client} onLaunched={() => setRefreshKey(k => k + 1)} />}
+              ? <CreateJobForm client={client} owner={owner} onCreated={() => setRefreshKey(k => k + 1)} />
+              : <MultiVectorForm client={client} owner={owner} onLaunched={() => setRefreshKey(k => k + 1)} />}
 
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-bold">Your jobs</h2>
                 <button onClick={() => setRefreshKey(k => k + 1)} className="text-xs text-[#888] hover:text-[#f97316]">Refresh</button>
               </div>
-              <JobList client={client} refreshKey={refreshKey} />
+              <JobList client={client} owner={owner} refreshKey={refreshKey} />
             </div>
           </>
         )}
