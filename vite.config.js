@@ -17,9 +17,13 @@ export default defineConfig({
     // provider branch), so an empty shim is enough.
     nodePolyfills({
       include: ['buffer', 'process', 'util', 'stream', 'crypto'],
-      // Buffer is set as a real global in main.jsx instead of per-file shim
-      // injection, which fails for the SDK source that lives outside webapp/.
-      globals: { Buffer: false, process: true, global: true },
+      // Buffer MUST be `true`: it aliases `import 'buffer'` to the plugin's own
+      // shim, which implements writeBigInt64LE/writeBigUInt64LE. With `false`
+      // the alias falls through to node-stdlib-browser's bundled buffer@5.7.1,
+      // which lacks those BigInt helpers — and the Fusill SDK needs
+      // writeBigInt64LE for the i64 PDA seed when creating a job. main.jsx still
+      // pins globalThis.Buffer at runtime for the SDK's bare `Buffer` global.
+      globals: { Buffer: true, process: true, global: true },
     }),
   ],
 })
